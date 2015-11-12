@@ -56,5 +56,5 @@ else()
 endif(LINK MATCHES static)
 
 
-
+target_link_libraries(kallisto htslib)
 install(TARGETS kallisto DESTINATION bin)

@@ -4,6 +4,11 @@ project(kallisto)
 
 set(EXT_PROJECTS_DIR ${PROJECT_SOURCE_DIR}/ext)
 
+#Add htslib for BAM parsing
+include_directories ("${PROJECT_SOURCE_DIR}/htslib/")
+include_directories ("${PROJECT_SOURCE_DIR}/htslib/htslib")
+add_subdirectory ("${PROJECT_SOURCE_DIR}/htslib/")
+
 #add_compile_options(-Wall -Wno-unused-function)
 add_compile_options(-std=c++11)
 IF(CMAKE_BUILD_TYPE MATCHES Debug)
