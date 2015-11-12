@@ -17,6 +17,8 @@
 
 #include "MinCollector.h"
 
+#include "hts.h"
+#include "sam.h"
 #include "common.h"
 
 #ifndef KSEQ_INIT_READY
@@ -33,14 +35,19 @@ public:
   fp1(0),fp2(0),seq1(0),seq2(0),
   l1(0),l2(0),nl1(0),nl2(0),
   paired(!opt.single_end), files(opt.files),
-  current_file(0), state(false) {}
+  current_file(0), state(false),
+  in(NULL), idx(NULL),
+  header(NULL), iter(NULL),
+  aln(NULL), aln2(NULL) {}
   bool empty();
   ~SequenceReader();
 
-  bool fetchSequences(char *buf, const int limit, std::vector<std::pair<const char*, int>>& seqs,
+  bool fetchSequencesFromFastq(char *buf, const int limit, std::vector<std::pair<const char*, int>>& seqs,
                       std::vector<std::pair<const char*, int>>& names,
                       std::vector<std::pair<const char*, int>>& quals, bool full=false);
-
+  bool fetchSequencesFromBam(char *buf, const int limit, std::vector<std::pair<const char*, int>>& seqs,
+                      std::vector<std::pair<const char*, int>>& names,
+                      std::vector<std::pair<const char*, int>>& quals, bool full=false);
 private:
   gzFile fp1 = 0, fp2 = 0;
   kseq_t *seq1 = 0, *seq2 = 0;
@@ -49,6 +56,11 @@ private:
   const std::vector<std::string>& files;
   int current_file;
   bool state; // is the file open
+  samFile *in;
+  hts_idx_t *idx;
+  bam_hdr_t *header;
+  hts_itr_t *iter;
+  bam1_t *aln, *aln2;
 };
 
 class MasterProcessor {
@@ -82,6 +94,7 @@ public:
   char *buffer;
   size_t bufsize;
   bool paired;
+  bool baminput; //is the input a BAM file
   const MinCollector& tc;
   const KmerIndex& index;
   MasterProcessor& mp;

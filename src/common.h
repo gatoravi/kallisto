@@ -29,6 +29,7 @@ struct ProgramOptions {
   bool bias;
   bool pseudobam;
   bool make_unique;
+  bool baminput;
   std::string gfa; // used for inspect
 
 ProgramOptions() :

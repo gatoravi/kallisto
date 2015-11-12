@@ -121,6 +121,7 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
   int strand_flag = 0;
   int bias_flag = 0;
   int pbam_flag = 0;
+  int baminput_flag = 0;
 
   const char *opt_string = "t:i:l:s:o:n:m:d:b:";
   static struct option long_options[] = {
@@ -131,6 +132,7 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
     {"single", no_argument, &single_flag, 1},
     //{"strand-specific", no_argument, &strand_flag, 1},
     {"bias", no_argument, &bias_flag, 1},
+    {"baminput", no_argument, &baminput_flag, 1},
     {"pseudobam", no_argument, &pbam_flag, 1},
     {"seed", required_argument, 0, 'd'},
     // short args
@@ -226,6 +228,10 @@ void ParseOptionsEM(int argc, char **argv, ProgramOptions& opt) {
 
   if (pbam_flag) {
     opt.pseudobam = true;
+  }
+
+  if (baminput_flag) {
+    opt.baminput = true;
   }
 }
 
@@ -427,7 +433,7 @@ bool CheckOptionsEM(ProgramOptions& opt, bool emonly = false) {
     }*/
 
     if (!opt.single_end) {
-      if (opt.files.size() % 2 != 0) {
+      if (!opt.baminput && opt.files.size() % 2 != 0) {
         cerr << "Error: paired-end mode requires an even number of input files" << endl
              << "       (use --single for processing single-end reads)" << endl;
         ret = false;
@@ -680,6 +686,7 @@ void usageEM(bool valid_input = true) {
        << "-s, --sd=DOUBLE               Estimated standard deviation of fragment length" << endl
        << "                              (default: value is estimated from the input data)" << endl
        << "-t, --threads=INT             Number of threads to use (default: 1)" << endl
+       << "    --baminput                Input is a name-sorted BAM file containing paired-end reads" << endl
        << "    --pseudobam               Output pseudoalignments in SAM format to stdout" << endl;
 
 }

@@ -14,9 +14,12 @@
 #include "common.h"
 */
 
+#include <stdexcept>
 #include "ProcessReads.h"
 #include "kseq.h"
 #include "PseudoBam.h"
+#include "hts.h"
+#include "sam.h"
 
 
 void printVector(const std::vector<int>& v, std::ostream& o) {
@@ -201,6 +204,7 @@ ReadProcessor::ReadProcessor(const KmerIndex& index, const ProgramOptions& opt, 
    // initialize buffer
    bufsize = 1ULL<<23;
    buffer = new char[bufsize];
+   baminput = opt.baminput;
 
    seqs.reserve(bufsize/50);
    newEcs.reserve(1000);
@@ -225,7 +229,11 @@ void ReadProcessor::operator()() {
         return;
       } else {
         // get new sequences
-        mp.SR.fetchSequences(buffer, bufsize, seqs, names, quals,mp.opt.pseudobam);
+        if(baminput) {
+            mp.SR.fetchSequencesFromBam(buffer, bufsize, seqs, names, quals,mp.opt.pseudobam);
+        } else {
+            mp.SR.fetchSequencesFromFastq(buffer, bufsize, seqs, names, quals,mp.opt.pseudobam);
+        }
       }
     } // release the reader lock
 
@@ -443,12 +451,137 @@ SequenceReader::~SequenceReader() {
   if (paired) {
     kseq_destroy(seq2);
   }
+  if(iter)
+      hts_itr_destroy(iter);
+  if(idx)
+      hts_idx_destroy(idx);
+  if(aln)
+      bam_destroy1(aln);
+  if(header)
+      bam_hdr_destroy(header);
+  if(in)
+      sam_close(in);
 }
 
 
 
 // returns true if there is more left to read from the files
-bool SequenceReader::fetchSequences(char *buf, const int limit, std::vector<std::pair<const char *, int> > &seqs,
+bool SequenceReader::fetchSequencesFromBam(char *buf, const int limit, std::vector<std::pair<const char *, int> > &seqs,
+  std::vector<std::pair<const char *, int> > &names,
+  std::vector<std::pair<const char *, int> > &quals, bool full) {
+  seqs.clear();
+  if (full) {
+    names.clear();
+    quals.clear();
+  }
+  int bufpos = 0;
+  int pad = 2;//Assumes BAM is paired. won't work for single-end BAM
+  std::string bam = files[current_file];
+  std::cout << "\n\tTrying to open BAM: " << bam << std::endl;
+  std::string region_ = ".";
+  if(!state) { //Is the file already open
+      //open BAM for reading
+      in = sam_open(bam.c_str(), "r");
+      if(in == NULL) {
+          throw std::runtime_error("Unable to open BAM/SAM file.");
+      }
+      //Load the index
+      idx = sam_index_load(in, bam.c_str());
+      if(idx == NULL) {
+          throw std::runtime_error("Unable to open BAM/SAM index."
+                  " Make sure alignments are indexed");
+      }
+      //Get the header
+      header = sam_hdr_read(in);
+      //Initialize iterator
+      iter = NULL;
+      //Move the iterator to the region we are interested in
+      iter  = sam_itr_querys(idx, header, region_.c_str());
+      if(header == NULL || iter == NULL) {
+          sam_close(in);
+          throw std::runtime_error("Unable to iterate to region within BAM.");
+      }
+      //Initiate the alignment record
+      aln = bam_init1();
+      aln2 = bam_init1(); //store mate
+      state = true;
+  }
+  while(sam_itr_next(in, iter, aln) >= 0) {
+      //std::cout << "Read Chr: " << header->target_name[aln->core.tid];
+      //std::cout << "\tPos: " << aln->core.pos;
+      std::string seq, qual;
+      uint8_t *quali = bam_get_qual(aln);
+      uint8_t *seqi = bam_get_seq(aln);
+      for (int i = 0; i < aln->core.l_qseq; i++) {
+          seq += seq_nt16_str[bam_seqi(seqi, i)];
+          qual += 33 + quali[i];
+      }
+      l1 = aln->core.l_qseq;
+      //look at the pair - assumes BAM is name sorted *IMPORTANT*
+      if(sam_itr_next(in, iter, aln2) < 0) {
+          break;
+      }
+      std::string seq2, qual2;
+      uint8_t *quali2 = bam_get_qual(aln2);
+      uint8_t *seqi2 = bam_get_seq(aln2);
+      for (int i = 0; i < aln->core.l_qseq; i++) {
+          seq2 += seq_nt16_str[bam_seqi(seqi2, i)];
+          qual2 += 33 + quali2[i];
+      }
+      l2 = aln2->core.l_qseq;
+
+      //Store both read and mate in buffers
+      int bufadd = l1 + l2 + pad;
+      if (full) {
+          nl1 = aln->core.l_qname;
+          nl2 = aln2->core.l_qname;
+          bufadd += (l1+l2) + pad + (nl1+nl2)+ pad;
+      }
+      if (bufpos + bufadd < limit) {
+          char *p1 = buf+bufpos;
+          //Sequence
+          memcpy(p1, seq.c_str(), l1+1);
+          bufpos += l1+1;
+          seqs.emplace_back(p1,l1);
+          if (full) {
+              p1 = buf+bufpos;
+              //Quality scores
+              memcpy(p1, qual.c_str(), l1+1);
+              bufpos += l1+1;
+              quals.emplace_back(p1, l1);
+              p1 = buf+bufpos;
+              //Query name
+              memcpy(p1, bam_get_qname(aln), nl1+1);
+              bufpos += nl1+1;
+              names.emplace_back(p1, nl1);
+          }
+          char *p2 = buf+bufpos;
+          //Sequence
+          memcpy(p2, seq2.c_str(), l2+1);
+          bufpos += l2+1;
+          seqs.emplace_back(p2,l2);
+          if (full) {
+              p2 = buf+bufpos;
+              //Quality scores
+              memcpy(p2, qual2.c_str(), l2+1);
+              bufpos += l2+1;
+              quals.emplace_back(p2,l2);
+              p2 = buf + bufpos;
+              memcpy(p2, bam_get_qname(aln2), nl2+1);
+              bufpos += nl2+1;
+              names.emplace_back(p2,nl2);
+          }
+      } else {
+          return true;// read it next time
+      }
+      current_file++; // done with this file
+      state = false; //done reading this file
+  }
+  return false;
+}
+
+// returns true if there is more left to read from the files
+bool SequenceReader::fetchSequencesFromFastq(char *buf, const int limit, std::vector<std::pair<const char *, int> > &seqs,
   std::vector<std::pair<const char *, int> > &names,
   std::vector<std::pair<const char *, int> > &quals, bool full) {
   seqs.clear();
