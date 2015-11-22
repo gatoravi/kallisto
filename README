@@ -1,0 +1,5 @@
+I had to blow away the entire build directory to get kallisto to install:
+LD_LIBRARY_PATH=/gscmnt/gc2607/mardiswilsonlab/aramu/src/gcc-5.2.0/build/lib64/ CXX=/gscmnt/gc2607/mardiswilsonlab/aramu/src/gcc-5.2.0/build/bin/c++ CC=/gscmnt/gc2607/mardiswilsonlab/aramu/src/gcc-5.2.0/build/bin/gcc cmake .. --system-information system-info.txt
+
+To run kallisto:
+LD_LIBRARY_PATH=/gscmnt/gc2607/mardiswilsonlab/aramu/src/gcc-5.2.0/build/lib64/ ./src/kallisto
